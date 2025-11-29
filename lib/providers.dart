@@ -100,6 +100,6 @@ class ExpensesNotifier extends StateNotifier<List<Expense>> {
 
   Future<void> refreshFromRemote() async {
     await ref.read(syncServiceProvider).sync();
-    _loadFromLocal();
+   // _loadFromLocal();
   }
 }
