@@ -1,13 +1,17 @@
 import 'dart:convert';
 import 'package:dio/dio.dart';
-import '../config.dart';
+import '../config.dart';    import 'package:flutter_dotenv/flutter_dotenv.dart';
+
 
 class GithubService {
   final Dio dio = Dio();
 
   GithubService() {
+
+    final GITHUB_TOKEN = dotenv.env['GITHUB_TOKEN'];
+
     dio.options.headers['Accept'] = 'application/vnd.github+json';
-    if (GITHUB_TOKEN.isNotEmpty) {
+    if (GITHUB_TOKEN!.isNotEmpty) {
       dio.options.headers['Authorization'] = 'Bearer $GITHUB_TOKEN';
     }
   }
