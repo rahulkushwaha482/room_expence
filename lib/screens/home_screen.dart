@@ -24,6 +24,8 @@ class HomeScreen extends ConsumerWidget {
                 ScaffoldMessenger.of(context)
                     .showSnackBar(const SnackBar(content: Text('Synced')));
               } catch (e) {
+                print('e.toString()');
+                print(e.toString());
                 ScaffoldMessenger.of(context)
                     .showSnackBar(SnackBar(content: Text('Sync failed: $e')));
               }
