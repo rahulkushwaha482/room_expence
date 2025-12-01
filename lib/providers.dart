@@ -66,29 +66,117 @@ final filteredExpensesProvider = Provider<List<Expense>>((ref) {
 });
 
 
+// class ExpensesNotifier extends StateNotifier<List<Expense>> {
+//   final Ref ref;
+//
+//   ExpensesNotifier(this.ref) : super([]) {
+//     _loadFromLocal();
+//   }
+//
+//   void _loadFromLocal() async {
+//     final local = HiveService.readLocal();
+//
+//     if (local == null || local['expenses'] == null) {
+//       // Fetch from GitHub if local data is missing
+//       try {
+//         final remote = await ref.read(syncServiceProvider).github.fetchRawJson();
+//         await HiveService.writeLocal(remote);
+//
+//         final expensesList = (remote['expenses'] as List)
+//             .map((e) => Expense.fromJson(Map<String, dynamic>.from(e)))
+//             .toList();
+//         state = expensesList;
+//       } catch (e) {
+//         state = [];
+//       }
+//       return;
+//     }
+//
+//     try {
+//       final expensesList = (local['expenses'] as List)
+//           .map((e) => Expense.fromJson(Map<String, dynamic>.from(e)))
+//           .toList();
+//       state = expensesList;
+//     } catch (e) {
+//       state = [];
+//     }
+//   }
+//
+//
+//   Future<void> addExpense(Expense e) async {
+//     // Update provider state
+//     state = [...state, e];
+//
+//     // Read full local JSON
+//     final local = HiveService.readLocal() ?? {
+//       'members': [],
+//       'expenses': [],
+//       'updated_at': DateTime.now().toIso8601String(),
+//     };
+//
+//     // Update expenses
+//     final existing = List.from(local['expenses'] as List);
+//     existing.add(e.toJson());
+//     local['expenses'] = existing;
+//
+//     // Update timestamp
+//     local['updated_at'] = DateTime.now().toIso8601String();
+//
+//     // Save to Hive
+//     await HiveService.writeLocal(local);
+//
+//     // Sync safely
+//     await ref.read(syncServiceProvider).addExpense(e.toJson());
+//   }
+//
+//
+//   Future<void> refreshFromRemote() async {
+//     try {
+//       await ref.read(syncServiceProvider).sync();
+//     } catch (e) {
+//       // Handle errors if GitHub is not reachable
+//       print("GitHub fetch failed: $e");
+//     }
+//     _loadFromLocal();
+//   }
+//
+// }
+
 class ExpensesNotifier extends StateNotifier<List<Expense>> {
   final Ref ref;
 
   ExpensesNotifier(this.ref) : super([]) {
-    _loadFromLocal();
+    _initialize();
+    // Background sync
+    final githubService = GithubService();
+    final syncService = SyncService(githubService);
+
+    syncService.sync().then((_) {
+      // reload after merge
+      _loadFromLocal();
+    }).catchError((e) {
+      print('GitHub sync failed: $e');
+    });
   }
 
-  void _loadFromLocal() async {
+  Future<void> _initialize() async {
+    try {
+      // 1️⃣ Sync data from GitHub and merge with local
+      await ref.read(syncServiceProvider).sync();
+
+      // 2️⃣ Load merged data from local Hive
+      _loadFromLocal();
+    } catch (e) {
+      print('Failed to initialize expenses: $e');
+      _loadFromLocal(); // fallback to local data if sync fails
+    }
+  }
+
+  void _loadFromLocal() {
     final local = HiveService.readLocal();
 
     if (local == null || local['expenses'] == null) {
-      // Fetch from GitHub if local data is missing
-      try {
-        final remote = await ref.read(syncServiceProvider).github.fetchRawJson();
-        await HiveService.writeLocal(remote);
-
-        final expensesList = (remote['expenses'] as List)
-            .map((e) => Expense.fromJson(Map<String, dynamic>.from(e)))
-            .toList();
-        state = expensesList;
-      } catch (e) {
-        state = [];
-      }
+      state = [];
       return;
     }
 
@@ -102,42 +190,31 @@ class ExpensesNotifier extends StateNotifier<List<Expense>> {
     }
   }
 
-
   Future<void> addExpense(Expense e) async {
-    // Update provider state
+    // 1️⃣ Add locally
     state = [...state, e];
+    final jsonList = state.map((x) => x.toJson()).toList();
 
-    // Read full local JSON
-    final local = HiveService.readLocal() ?? {
-      'members': [],
-      'expenses': [],
-      'updated_at': DateTime.now().toIso8601String(),
-    };
-
-    // Update expenses
-    final existing = List.from(local['expenses'] as List);
-    existing.add(e.toJson());
-    local['expenses'] = existing;
-
-    // Update timestamp
+    final local = HiveService.readLocal() ?? {'members': [], 'expenses': [], 'updated_at': DateTime.now().toIso8601String()};
+    local['expenses'] = jsonList;
     local['updated_at'] = DateTime.now().toIso8601String();
 
-    // Save to Hive
     await HiveService.writeLocal(local);
 
-    // Sync safely
-    await ref.read(syncServiceProvider).addExpense(e.toJson());
+    // 2️⃣ Sync with GitHub
+    try {
+      await ref.read(syncServiceProvider).sync();
+    } catch (e) {
+      print('GitHub sync failed: $e');
+    }
   }
-
 
   Future<void> refreshFromRemote() async {
     try {
       await ref.read(syncServiceProvider).sync();
+      _loadFromLocal();
     } catch (e) {
-      // Handle errors if GitHub is not reachable
-      print("GitHub fetch failed: $e");
+      print('Failed to refresh from remote: $e');
     }
-    _loadFromLocal();
   }
-
 }

@@ -1,56 +1,85 @@
-import 'package:uuid/uuid.dart';
+import 'package:flutter/foundation.dart';
 import '../services/github_service.dart';
 import '../services/hive_service.dart';
+import 'package:uuid/uuid.dart';
 
 class SyncService {
   final GithubService github;
+  final _uuid = const Uuid();
 
   SyncService(this.github);
 
-  /// Simple merge strategy: last-writer-wins using updated_at
+  /// Sync local and remote data safely.
+  /// Handles multi-device updates by merging expenses.
   Future<void> sync() async {
     try {
       final remote = await github.fetchRawJson();
       final local = HiveService.readLocal();
 
-      if (local == null) {
-        // no local data, just store remote locally
-        await HiveService.writeLocal(remote);
-        return;
-      }
-
-      final remoteUpdated = DateTime.tryParse(remote['updated_at'] ?? '') ?? DateTime.fromMillisecondsSinceEpoch(0);
-      final localUpdated = DateTime.tryParse(local['updated_at'] ?? '') ?? DateTime.fromMillisecondsSinceEpoch(0);
-
       Map<String, dynamic> merged;
 
-      if (localUpdated.isAfter(remoteUpdated)) {
-        // Push local to remote
-        merged = local;
-        merged['updated_at'] = DateTime.now().toIso8601String();
-        await github.updateFile(merged, commitMessage: 'Sync from app (local newer)');
-      } else if (remoteUpdated.isAfter(localUpdated)) {
-        // Pull remote to local
+      if (local == null) {
+        // First time install, just save remote
         merged = remote;
-        await HiveService.writeLocal(merged);
       } else {
-        // same timestamp, keep remote as source of truth
-        merged = remote;
-        await HiveService.writeLocal(merged);
+        // Merge expenses
+        final localExpenses = List<Map<String, dynamic>>.from(local['expenses'] ?? []);
+        final remoteExpenses = List<Map<String, dynamic>>.from(remote['expenses'] ?? []);
+
+        // Merge without duplicates (using unique id)
+        final mergedExpenses = [
+          ...localExpenses,
+          ...remoteExpenses.where((r) =>
+          !localExpenses.any((l) => l['id'] == r['id']))
+        ];
+
+        merged = {
+          ...remote,
+          'expenses': mergedExpenses,
+          'updated_at': DateTime.now().toIso8601String(),
+        };
       }
+
+      // Save merged data locally
+      await HiveService.writeLocal(merged);
+
+      // Push merged data to GitHub
+      try {
+        await github.updateFile(merged);
+        if (kDebugMode) print('GitHub push successful');
+      } catch (e) {
+        if (kDebugMode) print('GitHub push failed: $e');
+      }
+
     } catch (e) {
-      // network or other error: rethrow for caller to handle
-      rethrow;
+      if (kDebugMode) print('GitHub fetch failed: $e');
     }
   }
 
-  // Helper to add an expense locally and mark updated_at
+  /// Add new expense safely
   Future<void> addExpense(Map<String, dynamic> expenseJson) async {
-    final local = HiveService.readLocal() ?? {'members': [], 'expenses': [], 'updated_at': DateTime.now().toIso8601String()};
-    final List expenses = List.from(local['expenses'] as List);
+    final local = HiveService.readLocal() ?? {
+      'members': [],
+      'expenses': [],
+      'updated_at': DateTime.now().toIso8601String(),
+    };
+
+    final List<Map<String, dynamic>> expenses =
+    List<Map<String, dynamic>>.from(local['expenses'] ?? []);
+
+    // Assign unique ID if not present
+    if (!expenseJson.containsKey('id')) {
+      expenseJson['id'] = _uuid.v4();
+    }
+
     expenses.add(expenseJson);
     local['expenses'] = expenses;
     local['updated_at'] = DateTime.now().toIso8601String();
+
+    // Save locally
     await HiveService.writeLocal(local);
+
+    // Sync with GitHub
+    await sync();
   }
 }

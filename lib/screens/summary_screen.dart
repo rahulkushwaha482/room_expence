@@ -11,6 +11,7 @@ class SummaryScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final expenses = ref.watch(filteredExpensesProvider);
 
+
     return Scaffold(
       appBar: AppBar(
         title: const Text("Summary"),
