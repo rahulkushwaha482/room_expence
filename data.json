@@ -1,1 +1,1 @@
-{"members":["Rahul","Raushan","Ijhar"],"expenses":[],"updated_at":"2025-12-01T19:21:30.987692"}
+{"members":["Rahul","Raushan","Ijhar"],"expenses":[{"id":"d88997e3-4886-4dc7-ac3e-b41bde4fb55e","item":"rahul","amount":123.0,"paid_by":"Rahul","date":"2025-12-01","sharedBetween":["Rahul","Raushan","Ijhar"]}],"updated_at":"2025-12-01T19:22:12.311618"}
